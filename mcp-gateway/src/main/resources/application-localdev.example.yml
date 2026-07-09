@@ -1,0 +1,13 @@
+# Copy this file to application-localdev.yml for private local overrides.
+# application-localdev.yml is ignored by Git.
+
+spring:
+  config:
+    activate:
+      on-profile: localdev
+
+mcp-gateway:
+  database:
+    host: 127.0.0.1:3306
+    username: mcp_gateway
+    password: mcp_gateway

@@ -1,0 +1,191 @@
+# ============================================================
+# imawx-mcp-gateway 公共基线配置(2026-07-03 重整)
+#
+# 设计原则:
+# - 公共基础放本文件(端口、datasource 模板、Jackson、MyBatis-Plus、actuator、graceful shutdown)
+# - 环境差异放 application-{dev,prod}.yml(数据库连接、日志级别、池大小)
+# - 数据库连接用占位符 ${mcp-gateway.database.*},环境文件只填具体值,不写死密码
+#
+# Profile 选择:
+# - dev:mvn spring-boot:run(SPRING_PROFILES_ACTIVE=dev)
+# - prod:java -jar ... --spring.profiles.active=prod
+# ============================================================
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+    session:
+      timeout: 7d
+      cookie:
+        name: IMAWX_MCP_SESSION
+        http-only: true
+        same-site: lax
+  # 生产 graceful shutdown —— SIGTERM 后先把 in-flight 请求收尾,再退出进程
+  # dev 不配置,加快重启
+  shutdown: graceful
+
+spring:
+  application:
+    name: imawx-mcp-gateway
+
+  # ---- 数据源(模板,值由 application-{dev,prod}.yml 注入)----
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${mcp-gateway.database.host}/imawx_mcp_gateway?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${mcp-gateway.database.username}
+    password: ${mcp-gateway.database.password}
+    hikari:
+      pool-name: mcp-gateway-pool
+      # 池大小基线;dev=小池,prod=大池在 application-{dev,prod}.yml 覆盖
+      minimum-idle: 2
+      maximum-pool-size: 10
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  session:
+    store-type: jdbc
+    jdbc:
+      initialize-schema: never
+      table-name: SPRING_SESSION
+      cleanup-cron: "0 * * * * *"
+
+  # ---- 启动时通过 MyBatis-Plus DDL 自动扫描 classpath:db/**/*.sql ----
+
+  # ---- 虚拟线程(2026-07-03 开启)----
+  # MCP gateway 是 I/O 密集型(远端 MCP server HTTP 调用 + MySQL JDBC),虚拟线程收益巨大:
+  #   - Spring MVC 请求 handler 跑在虚拟线程上 —— Tomcat worker 池大小不再是瓶颈
+  #   - @Async / CompletableFuture / 显式 submit 跑在虚拟线程上
+  #   - @Scheduled 跑在虚拟线程上(但低频 cron 任务用 platform 也无所谓)
+  # Spring Boot 3.2+ / 4.x 一行开启;Java 21+ 必备(本项目 Java 25)
+  # 约束:业务代码不要用 synchronized(会 pin carrier thread);用 ReentrantLock
+  threads:
+    virtual:
+      enabled: true
+
+  # ---- Jackson ----
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+
+  # ---- Graceful shutdown ----
+  # 给正在执行的 SSE 长连接、HTTP 请求最多 30s 收尾时间
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+  # ---- 异步任务线程池(SSE 调度、@Async 等用)----
+  # 2026-07-03:开启虚拟线程后,Spring 默认把 applicationTaskExecutor 换成 virtual-thread-per-task。
+  # 因此 core-size / max-size / queue-capacity 全部被忽略(@Primary 的 mcpGatewayExecutor
+  # 在 McpConfig 里换成 VirtualThreadTaskExecutor 也是同个原因)。
+  # 保留这一段只是给 application-prod.yml 提供可读 anchor;生产不需要再调这些参数。
+  # 原配置(core=4/max=16/queue=200)由 McpConfig#mcpGatewayExecutor 接管。
+  task:
+    execution:
+      pool:
+        core-size: 4
+        max-size: 16
+        queue-capacity: 200
+      thread-name-prefix: mcp-async-
+
+  # ---- Spring AI MCP Client(阶段 1 暂不连接任何下游,配置仅占位)----
+  ai:
+    mcp:
+      client:
+        enabled: false
+        name: imawx-mcp-gateway
+        version: 0.0.1
+        type: SYNC
+
+# ---- MyBatis-Plus ----
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+  global-config:
+    db-config:
+      id-type: AUTO
+      logic-delete-field: null
+      table-underline: true
+    banner: false
+
+# ---- Actuator 最小暴露(只开放 health / info;生产不要暴露 metrics/env 等敏感端点)----
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when_authorized
+  info:
+    env:
+      enabled: false
+    git:
+      mode: simple
+
+# ---- 应用自定义配置(共性默认值;环境差异在 application-{dev,prod}.yml 覆盖)----
+mcp-gateway:
+  # 日志文件查看(2026-07-01 加)
+  log:
+    # 跟 logging.file.name 保持一致 —— 启动 cwd + 相对路径
+    dir: logs
+    # 单次 view 接口允许的最大行数
+    max-tail-lines: 10000
+  web:
+    cors:
+      # 允许携带 cookie 的跨域来源白名单；生产必须按实际控制台域名覆盖，禁止使用 "*"
+      allowed-origin-patterns:
+        - "http://localhost:*"
+        - "http://127.0.0.1:*"
+        - "http://[::1]:*"
+  mcp:
+    # 阶段 1 内部测试 Client 的 smoke 配置(application-cli.yml 覆盖)
+    smoke-test:
+      enabled: false
+      backend-id: ""
+      tool-name: ""
+      arguments-json: "{}"
+    sync:
+      # 工具同步默认周期 —— base=60s,dev=10s(更频繁)
+      default-interval-seconds: 60
+      default-fail-threshold: 3
+    invoke:
+      # 远端调用默认超时(2026-07-03 改 10s → 1800s = 30 分钟)
+      # 慢查询/大模型推理等场景需要放宽,30 分钟是技术上限。
+      # 统计 TIMEOUT 阈值也同步到 30 分钟(McpCallLogService.TIMEOUT_THRESHOLD_MS=1_800_000),
+      # 慢查询 5 分钟完成在 dashboard 里归 SUCCESS(没超过 30 分钟统计阈值)。
+      request-timeout-seconds: 1800
+      initialize-timeout-seconds: 1800
+
+  # ---- 安全配置(2026-07-04 加,2026-07-04 重构为 RSA-OAEP)----
+  # RSA-OAEP 加密 mcp_user.totp_secret 的私钥(PKCS#8 PEM)完全不在 yml 里写死,
+  # 启动时由 SecurityConfig 按优先级解析:
+  #   1) env var MCP_GATEWAY_SECURITY_TOTP_KEY      (直接 PKCS#8 PEM 文本)
+  #   2) env var MCP_GATEWAY_SECURITY_TOTP_KEY_FILE (指向 PEM 私钥文件)
+  #   3) dev profile 专属: ~/.imawx-mcp-gateway/totp.key 自动生成(RSA-4096 PKCS#8 PEM,权限 0600)
+  # prod 手动生成: openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out /etc/imawx/totp.key
+  # prod profile 必须命中 1 或 2,不能用 dev 自动生成的 key。
+  # 这里只声明 security 块存在,具体 key 值由 SecurityConfig 决定。
+  security:
+    # dev 默认关闭；prod profile 强制打开
+    require-https: false
+    trusted-proxy-cidrs:
+      - "127.0.0.1/32"
+      - "::1/128"
+    backend-target:
+      # STDIO 功能可用，但命令必须命中 mcp_system_config 的 mcp.security.stdio.allowed-commands 白名单
+      allow-stdio: true
+      # 默认禁止指向 localhost / 127.0.0.0/8 / ::1，避免借网关打本机管理面
+      allow-loopback: false
+      # 默认禁止 link-local，例如 169.254.169.254 云 metadata 地址
+      allow-link-local: false
+    audit:
+      # 审计必须保留 tool 入参、结果和 stream logs；写入前由配置表脱敏敏感字段
+      persist-payloads: true
+    csrf:
+      # dev 默认关闭；prod profile 强制打开
+      enabled: false

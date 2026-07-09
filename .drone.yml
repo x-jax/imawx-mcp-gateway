@@ -1,0 +1,144 @@
+---
+kind: pipeline
+type: docker
+name: build-and-deploy-prod
+
+platform:
+  os: linux
+  arch: amd64
+
+trigger:
+  branch:
+    - master
+  event:
+    - push
+
+volumes:
+  - name: maven-cache
+    host:
+      path: /tmp/drone-cache/imawx-mcp-gateway/m2
+  - name: pnpm-cache
+    host:
+      path: /tmp/drone-cache/imawx-mcp-gateway/pnpm-store
+
+steps:
+  - name: build-backend
+    image: maven:3.9.11-eclipse-temurin-25
+    volumes:
+      - name: maven-cache
+        path: /root/.m2
+    commands:
+      - mkdir -p /root/.m2
+      - |
+        cat > /root/.m2/settings.xml <<'EOF'
+        <settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 https://maven.apache.org/xsd/settings-1.2.0.xsd">
+          <mirrors>
+            <mirror>
+              <id>aliyunmaven</id>
+              <mirrorOf>*</mirrorOf>
+              <name>Aliyun Maven</name>
+              <url>https://maven.aliyun.com/repository/public</url>
+            </mirror>
+          </mirrors>
+        </settings>
+        EOF
+      - mvn -B -DskipTests clean package
+
+  - name: build-frontend
+    image: node:22-alpine
+    environment:
+      CI: "true"
+      HUSKY: "0"
+    volumes:
+      - name: pnpm-cache
+        path: /root/.local/share/pnpm/store
+    commands:
+      - corepack enable
+      - corepack prepare pnpm@9.15.9 --activate
+      - pnpm config set store-dir /root/.local/share/pnpm/store
+      - cd mcp-web-ui
+      - pnpm install --frozen-lockfile
+      - pnpm build:prod
+
+  - name: package-artifacts
+    image: alpine:3.20
+    commands:
+      - rm -rf deploy
+      - mkdir -p deploy/frontend deploy/backend
+      - cp -a mcp-web-ui/dist deploy/frontend/dist
+      - cp mcp-gateway/target/mcp-gateway.jar deploy/backend/mcp-gateway.jar
+      - ls -lah deploy/backend deploy/frontend
+
+  - name: deploy-prod
+    image: alpine:3.20
+    environment:
+      MCP_GATEWAY_PROD_HOST:
+        from_secret: MCP_GATEWAY_PROD_HOST
+      MCP_GATEWAY_PROD_PWD:
+        from_secret: MCP_GATEWAY_PROD_PWD
+    commands:
+      - apk add --no-cache openssh-client sshpass tar
+      - tar -C . -czf /tmp/imawx-mcp-gateway-${DRONE_BUILD_NUMBER}.tar.gz deploy/frontend deploy/backend
+      - sshpass -p "$MCP_GATEWAY_PROD_PWD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@"$MCP_GATEWAY_PROD_HOST" "rm -rf /tmp/imawx-mcp-gateway-${DRONE_BUILD_NUMBER} && mkdir -p /tmp/imawx-mcp-gateway-${DRONE_BUILD_NUMBER}"
+      - sshpass -p "$MCP_GATEWAY_PROD_PWD" scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/imawx-mcp-gateway-${DRONE_BUILD_NUMBER}.tar.gz root@"$MCP_GATEWAY_PROD_HOST":/tmp/imawx-mcp-gateway-${DRONE_BUILD_NUMBER}/release.tar.gz
+      - |
+        sshpass -p "$MCP_GATEWAY_PROD_PWD" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@"$MCP_GATEWAY_PROD_HOST" "DRONE_BUILD_NUMBER=$DRONE_BUILD_NUMBER sh -s" <<'EOF'
+        set -ex
+        trap 'rc=$?; echo "[deploy-prod] failed rc=$rc"; systemctl --no-pager --full status imawx-mcp-gateway.service || true; journalctl -u imawx-mcp-gateway.service -n 200 --no-pager || true; exit $rc' ERR
+        RELEASE_DIR="/tmp/imawx-mcp-gateway-$DRONE_BUILD_NUMBER"
+        RELEASE_TAR="$RELEASE_DIR/release.tar.gz"
+        test -f "$RELEASE_TAR"
+        rm -rf "$RELEASE_DIR/deploy"
+        tar -xzf "$RELEASE_TAR" -C "$RELEASE_DIR"
+        FRONTEND_SRC="$RELEASE_DIR/deploy/frontend/dist"
+        BACKEND_JAR="$RELEASE_DIR/deploy/backend/mcp-gateway.jar"
+        FRONTEND_DIR="/app/imawx-mcp-gateway/dist"
+        BACKEND_DIR="/app/imawx-mcp-gateway/app"
+        FRONTEND_STAGE="/app/imawx-mcp-gateway/dist.stage-$DRONE_BUILD_NUMBER"
+        FRONTEND_BACKUP="/app/imawx-mcp-gateway/dist.backup-$DRONE_BUILD_NUMBER"
+        BACKEND_BACKUP="$BACKEND_DIR/mcp-gateway.jar.backup-$DRONE_BUILD_NUMBER"
+        test -d "$FRONTEND_SRC"
+        test -f "$BACKEND_JAR"
+        mkdir -p "$FRONTEND_DIR" "$BACKEND_DIR" "$BACKEND_DIR/logs"
+        systemctl --no-pager --full status imawx-mcp-gateway.service || true
+        rm -rf "$FRONTEND_STAGE" "$FRONTEND_BACKUP"
+        mkdir -p "$FRONTEND_STAGE"
+        cp -a "$FRONTEND_SRC/." "$FRONTEND_STAGE/"
+        test -f "$FRONTEND_STAGE/index.html"
+        if [ -f "$BACKEND_DIR/mcp-gateway.jar" ]; then
+          cp "$BACKEND_DIR/mcp-gateway.jar" "$BACKEND_BACKUP"
+        fi
+        cp "$BACKEND_JAR" "$BACKEND_DIR/mcp-gateway.jar.new"
+        mv "$BACKEND_DIR/mcp-gateway.jar.new" "$BACKEND_DIR/mcp-gateway.jar"
+        systemctl daemon-reload
+        systemctl enable imawx-mcp-gateway.service
+        systemctl restart imawx-mcp-gateway.service
+        systemctl --no-pager --full status imawx-mcp-gateway.service
+        HEALTH_URL="http://127.0.0.1:8080/api/public/openapi-smoke/ping"
+        ok=0
+        for i in $(seq 1 30); do
+          if command -v curl >/dev/null 2>&1; then
+            if curl -fsS --max-time 3 "$HEALTH_URL" >/dev/null; then ok=1; break; fi
+          elif command -v wget >/dev/null 2>&1; then
+            if wget -q -T 3 -O /dev/null "$HEALTH_URL"; then ok=1; break; fi
+          else
+            echo "[deploy-prod] neither curl nor wget exists on prod host"
+            break
+          fi
+          sleep 2
+        done
+        if [ "$ok" != "1" ]; then
+          echo "[deploy-prod] health check failed, rollback backend jar"
+          if [ -f "$BACKEND_BACKUP" ]; then
+            cp "$BACKEND_BACKUP" "$BACKEND_DIR/mcp-gateway.jar"
+            systemctl restart imawx-mcp-gateway.service || true
+          fi
+          exit 1
+        fi
+        mv "$FRONTEND_DIR" "$FRONTEND_BACKUP"
+        mv "$FRONTEND_STAGE" "$FRONTEND_DIR"
+        rm -rf "$FRONTEND_BACKUP" "$BACKEND_BACKUP"
+        rm -rf "$RELEASE_DIR"
+        EOF

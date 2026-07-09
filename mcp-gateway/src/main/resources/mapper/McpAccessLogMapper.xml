@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.imawx.mcp.gateway.mapper.McpAccessLogMapper">
+
+    <sql id="QueryWhere">
+        <where>
+            <if test="query.startTime != null">
+                AND l.create_time &gt;= #{query.startTime}
+            </if>
+            <if test="query.endTime != null">
+                AND l.create_time &lt;= #{query.endTime}
+            </if>
+            <if test="query.keyword != null and query.keyword != ''">
+                AND (
+                    l.uri LIKE CONCAT('%', #{query.keyword}, '%')
+                    OR l.user_agent LIKE CONCAT('%', #{query.keyword}, '%')
+                    OR l.user_email_snapshot LIKE CONCAT('%', #{query.keyword}, '%')
+                    OR u.email LIKE CONCAT('%', #{query.keyword}, '%')
+                    OR COALESCE(l.token_prefix_snapshot, t.token_prefix) LIKE CONCAT('%', #{query.keyword}, '%')
+                )
+            </if>
+            <if test="query.userEmail != null and query.userEmail != ''">
+                AND COALESCE(l.user_email_snapshot, u.email) LIKE CONCAT('%', #{query.userEmail}, '%')
+            </if>
+            <if test="query.ip != null and query.ip != ''">
+                AND l.ip LIKE CONCAT('%', #{query.ip}, '%')
+            </if>
+            <if test="query.method != null and query.method != ''">
+                AND l.method = #{query.method}
+            </if>
+            <if test="query.result != null and query.result != ''">
+                AND l.result = #{query.result}
+            </if>
+            <if test="query.status != null">
+                AND l.status = #{query.status}
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectPageList" resultType="com.imawx.mcp.gateway.entity.vo.McpAccessLogVO">
+        SELECT
+            l.id,
+            l.trace_id AS traceId,
+            l.ip,
+            l.method,
+            l.uri,
+            l.result,
+            l.status,
+            l.cost_ms AS costMs,
+            l.has_query AS hasQuery,
+            l.user_agent AS userAgent,
+            l.user_id AS userId,
+            COALESCE(l.user_email_snapshot, u.email) AS userEmail,
+            l.token_id AS tokenId,
+            COALESCE(l.token_prefix_snapshot, t.token_prefix) AS tokenPrefix,
+            l.auth_header AS authHeader,
+            l.create_time AS createTime
+        FROM mcp_access_log l
+        LEFT JOIN mcp_user u ON u.id = l.user_id
+        LEFT JOIN mcp_api_token t ON t.id = l.token_id
+        <include refid="QueryWhere"/>
+        ORDER BY l.create_time DESC, l.id DESC
+        LIMIT #{query.offset}, #{query.size}
+    </select>
+
+    <select id="countByQuery" resultType="long">
+        SELECT COUNT(*)
+        FROM mcp_access_log l
+        LEFT JOIN mcp_user u ON u.id = l.user_id
+        LEFT JOIN mcp_api_token t ON t.id = l.token_id
+        <include refid="QueryWhere"/>
+    </select>
+</mapper>

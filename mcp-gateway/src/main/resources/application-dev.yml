@@ -1,0 +1,27 @@
+# ============================================================
+# imawx-mcp-gateway development profile.
+#
+# Start with:
+#   SPRING_PROFILES_ACTIVE=dev mvn spring-boot:run
+#
+# Use environment variables to point the application at your local database.
+# ============================================================
+
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+mcp-gateway:
+  database:
+    host: ${MCP_GATEWAY_DATABASE_HOST:127.0.0.1:3306}
+    username: ${MCP_GATEWAY_DATABASE_USERNAME:mcp_gateway}
+    password: ${MCP_GATEWAY_DATABASE_PASSWORD:mcp_gateway}
+  mcp:
+    sync:
+      default-interval-seconds: 10
+
+logging:
+  level:
+    com.imawx.mcp.gateway: DEBUG
+    io.modelcontextprotocol: DEBUG

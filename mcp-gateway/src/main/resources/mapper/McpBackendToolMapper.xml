@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.imawx.mcp.gateway.mapper.McpBackendToolMapper">
+
+    <resultMap id="BaseResultMap" type="com.imawx.mcp.gateway.entity.do_.McpBackendToolDO">
+        <id column="id" property="id"/>
+        <result column="backend_id" property="backendId"/>
+        <result column="tool_name" property="toolName"/>
+        <result column="description" property="description"/>
+        <result column="input_schema" property="inputSchema"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <select id="selectByBackendId" resultMap="BaseResultMap">
+        SELECT id, backend_id, tool_name, description, input_schema, create_time, update_time
+        FROM mcp_backend_tool
+        WHERE backend_id = #{backendId}
+        ORDER BY tool_name
+    </select>
+
+    <select id="countByBackendId" resultType="long">
+        SELECT COUNT(*) FROM mcp_backend_tool WHERE backend_id = #{backendId}
+    </select>
+
+    <!-- 2026-07-03 加:批量按 backend_id 拉 tool 列表(token 授权编辑 UI 用,避免 N+1) -->
+    <select id="selectListByBackendIds" resultMap="BaseResultMap">
+        SELECT id, backend_id, tool_name, description, input_schema, create_time, update_time
+        FROM mcp_backend_tool
+        WHERE backend_id IN
+        <foreach collection="backendIds" item="bid" open="(" close=")" separator=",">
+            #{bid}
+        </foreach>
+        ORDER BY backend_id, tool_name
+    </select>
+
+    <!-- 2026-07-03 加:判断某 backend 下某 tool 是否存在,索引命中 uk_backend_tool -->
+    <select id="countByBackendIdAndToolName" resultType="long">
+        SELECT COUNT(*) FROM mcp_backend_tool
+        WHERE backend_id = #{backendId} AND tool_name = #{toolName}
+    </select>
+</mapper>

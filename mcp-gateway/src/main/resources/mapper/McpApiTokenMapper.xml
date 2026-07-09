@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.imawx.mcp.gateway.mapper.McpApiTokenMapper">
+
+    <resultMap id="BaseResultMap" type="com.imawx.mcp.gateway.entity.do_.McpApiTokenDO">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="name" property="name"/>
+        <result column="token_prefix" property="tokenPrefix"/>
+        <result column="token_hash" property="tokenHash"/>
+        <result column="scopes" property="scopes"/>
+        <result column="ip_whitelist" property="ipWhitelist"/>
+        <result column="expires_at" property="expiresAt"/>
+        <result column="last_used_at" property="lastUsedAt"/>
+        <result column="last_used_ip" property="lastUsedIp"/>
+        <result column="status" property="status"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="revoked_at" property="revokedAt"/>
+        <result column="restrict_mode" property="restrictMode"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, user_id, name, token_prefix, token_hash, scopes, ip_whitelist,
+        expires_at, last_used_at, last_used_ip, status,
+        created_at, revoked_at, restrict_mode
+    </sql>
+
+    <select id="selectActiveByHash" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM mcp_api_token
+        WHERE token_hash = #{tokenHash} AND status = 1
+        LIMIT 1
+    </select>
+</mapper>

@@ -1,0 +1,214 @@
+[
+  {
+    "transportType": "STDIO",
+    "extensionTransport": false,
+    "endpointPolicy": "STDIO"
+  },
+  {
+    "transportType": "SSE",
+    "extensionTransport": false,
+    "endpointPolicy": "URI",
+    "allowedSchemes": ["http", "https"],
+    "rejectUserInfo": true,
+    "endpointLabel": "HTTP/SSE endpoint"
+  },
+  {
+    "transportType": "HTTP",
+    "extensionTransport": false,
+    "endpointPolicy": "URI",
+    "allowedSchemes": ["http", "https"],
+    "rejectUserInfo": true,
+    "endpointLabel": "HTTP/SSE endpoint"
+  },
+  {
+    "transportType": "STREAMABLE_HTTP",
+    "extensionTransport": false,
+    "endpointPolicy": "URI",
+    "allowedSchemes": ["http", "https"],
+    "rejectUserInfo": true,
+    "endpointLabel": "HTTP/SSE endpoint"
+  },
+  {
+    "transportType": "MYSQL",
+    "extensionTransport": true,
+    "endpointPolicy": "PASS",
+    "secretKey": "password",
+    "requiredConfig": [
+      {"key": "dbType", "type": "text", "message": "数据库类型必填"},
+      {"key": "jdbcUrl", "type": "text", "message": "JDBC URL 必填"},
+      {"key": "username", "type": "text", "message": "数据库账号必填"}
+    ],
+    "secretRequiredMessage": "数据库密码必填",
+    "resourceFields": [
+      {"label": "dbType", "source": "config", "keys": ["dbType"]},
+      {"label": "jdbc", "source": "first", "keys": ["config.jdbcUrl", "endpoint"], "sanitize": true},
+      {"label": "schema", "source": "config", "keys": ["schemaName"]}
+    ]
+  },
+  {
+    "transportType": "POSTGRESQL",
+    "extendsTransport": "MYSQL"
+  },
+  {
+    "transportType": "ORACLE",
+    "extendsTransport": "MYSQL"
+  },
+  {
+    "transportType": "SQLSERVER",
+    "extendsTransport": "MYSQL"
+  },
+  {
+    "transportType": "REDIS",
+    "extensionTransport": true,
+    "endpointPolicy": "PASS",
+    "allowedSchemes": ["redis", "rediss"],
+    "rejectUserInfo": false,
+    "endpointLabel": "Redis endpoint",
+    "secretKey": "authToken",
+    "requiredConfig": [
+      {"key": "host", "type": "text", "message": "Redis Host 必填"},
+      {"key": "port", "type": "port", "message": "Redis 端口必填"}
+    ],
+    "resourceFields": [
+      {"label": "host", "source": "hostPort"},
+      {"label": "db", "source": "configList", "keys": ["databases", "database"]},
+      {"label": "namespace", "source": "config", "keys": ["namespace"]},
+      {"label": "keyPrefix", "source": "config", "keys": ["keyPrefix"]}
+    ]
+  },
+  {
+    "transportType": "MONGODB",
+    "extensionTransport": true,
+    "endpointPolicy": "PASS",
+    "allowedSchemes": ["mongodb"],
+    "rejectUserInfo": true,
+    "endpointLabel": "MongoDB endpoint",
+    "secretKey": "authToken",
+    "requiredConfig": [
+      {"key": "host", "type": "text", "message": "MongoDB Host 必填"},
+      {"key": "port", "type": "port", "message": "MongoDB 端口必填"},
+      {"key": "database", "type": "text", "message": "MongoDB 数据库必填"}
+    ],
+    "resourceFields": [
+      {"label": "host", "source": "hostPort"},
+      {"label": "database", "source": "config", "keys": ["database"]}
+    ]
+  },
+  {
+    "transportType": "ELASTICSEARCH",
+    "extensionTransport": true,
+    "endpointPolicy": "PASS",
+    "allowedSchemes": ["http", "https"],
+    "rejectUserInfo": true,
+    "endpointLabel": "Elasticsearch endpoint",
+    "secretKey": "authToken",
+    "requiredConfig": [
+      {"key": "host", "type": "text", "message": "Elasticsearch Host 必填"},
+      {"key": "port", "type": "port", "message": "Elasticsearch 端口必填"}
+    ],
+    "resourceFields": [
+      {"label": "host", "source": "hostPort"},
+      {"label": "indexPrefix", "source": "config", "keys": ["indexPrefix"]}
+    ]
+  },
+  {
+    "transportType": "ALIYUN_DNS",
+    "extensionTransport": true,
+    "endpointPolicy": "PASS",
+    "secretKey": "accessKeySecret",
+    "secretConfigKeys": ["securityToken"],
+    "requiredConfig": [
+      {"key": "accessKeyId", "type": "text", "message": "ALIYUN_DNS AccessKeyId 必填"}
+    ],
+    "secretRequiredMessage": "ALIYUN_DNS AccessKeySecret 必填",
+    "resourceFields": [
+      {"label": "domains", "source": "configList", "keys": ["domains", "domainNames", "domainName"]},
+      {"label": "endpoint", "source": "first", "keys": ["config.endpoint", "endpoint"]}
+    ]
+  },
+  {
+    "transportType": "ALIYUN_OSS",
+    "extensionTransport": true,
+    "endpointPolicy": "PASS",
+    "secretKey": "accessKeySecret",
+    "secretConfigKeys": ["securityToken"],
+    "requiredConfig": [
+      {"key": "accessKeyId", "type": "text", "message": "ALIYUN_OSS AccessKeyId 必填"}
+    ],
+    "secretRequiredMessage": "ALIYUN_OSS AccessKeySecret 必填",
+    "resourceFields": [
+      {"label": "buckets", "source": "configList", "keys": ["buckets", "bucketNames", "bucketName"]},
+      {"label": "region", "source": "config", "keys": ["region"]},
+      {"label": "endpoint", "source": "first", "keys": ["config.endpoint", "endpoint"]}
+    ]
+  },
+  {
+    "transportType": "OPENAPI",
+    "extensionTransport": true,
+    "endpointPolicy": "URI",
+    "allowedSchemes": ["http", "https"],
+    "rejectUserInfo": true,
+    "endpointLabel": "OpenAPI 地址",
+    "secretKey": "authToken",
+    "requiredConfig": [
+      {"key": "specUrl", "type": "httpUrl", "message": "OpenAPI 文档 URL 必须以 http:// 或 https:// 开头"},
+      {"key": "allowedMethods", "type": "listNonEmpty", "message": "OpenAPI allowedMethods 至少选择一个"}
+    ],
+    "secretRequiredWhenConfigNotEquals": {"key": "authType", "value": "NONE", "message": "OpenAPI 鉴权密钥必填"},
+    "resourceFields": [
+      {"label": "spec", "source": "config", "keys": ["specUrl"]},
+      {"label": "baseUrl", "source": "config", "keys": ["baseUrl"]},
+      {"label": "methods", "source": "configList", "keys": ["allowedMethods"]}
+    ]
+  },
+  {
+    "transportType": "SSH",
+    "extensionTransport": true,
+    "endpointPolicy": "PASS",
+    "secretKey": "authToken",
+    "requiredConfig": [
+      {"key": "host", "type": "text", "message": "SSH Host 必填"},
+      {"key": "port", "type": "port", "message": "SSH 端口必填"},
+      {"key": "username", "type": "text", "message": "SSH 用户名必填"}
+    ],
+    "secretRequiredMessage": "SSH 密码或私钥必填",
+    "resourceFields": [
+      {"label": "host", "source": "hostPort"},
+      {"label": "authType", "source": "config", "keys": ["authType"]},
+      {"label": "hostKey", "source": "config", "keys": ["hostKeyFingerprint"]},
+      {"label": "allowedCommands", "source": "configList", "keys": ["allowedCommands"]}
+    ]
+  },
+  {
+    "transportType": "DRONE",
+    "extensionTransport": true,
+    "endpointPolicy": "PASS",
+    "secretKey": "authToken",
+    "requiredConfig": [
+      {"key": "baseUrl", "type": "httpUrl", "message": "Drone Server 必须以 http:// 或 https:// 开头"},
+      {"key": "repo", "type": "text", "message": "Drone 仓库路径必填"}
+    ],
+    "secretRequiredMessage": "Drone Personal Access Token 必填",
+    "resourceFields": [
+      {"label": "repo", "source": "config", "keys": ["repo"]},
+      {"label": "server", "source": "config", "keys": ["baseUrl"]}
+    ]
+  },
+  {
+    "transportType": "KV_DATABASE",
+    "extensionTransport": true,
+    "endpointPolicy": "PASS",
+    "secretKey": "authToken",
+    "requiredConfig": [
+      {"key": "host", "type": "text", "message": "KV Host 必填"},
+      {"key": "port", "type": "port", "message": "KV 端口必填"},
+      {"key": "namespace", "type": "text", "message": "KV Namespace 必填"},
+      {"key": "keyPrefix", "type": "text", "message": "KV Key Prefix 必填"}
+    ],
+    "resourceFields": [
+      {"label": "host", "source": "hostPort"},
+      {"label": "namespace", "source": "config", "keys": ["namespace"]},
+      {"label": "keyPrefix", "source": "config", "keys": ["keyPrefix"]}
+    ]
+  }
+]

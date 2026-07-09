@@ -1,0 +1,60 @@
+# ============================================================
+# imawx-mcp-gateway production profile.
+#
+# Secrets must be injected with environment variables or mounted files. Do not
+# commit production passwords, private keys, API tokens, or endpoint lists.
+# ============================================================
+
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+  datasource:
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 30
+      connection-timeout: 10000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  task:
+    execution:
+      pool:
+        core-size: 8
+        max-size: 32
+        queue-capacity: 500
+      thread-name-prefix: mcp-async-prod-
+
+server:
+  forward-headers-strategy: framework
+  servlet:
+    session:
+      cookie:
+        secure: true
+        max-age: 7d
+        same-site: lax
+
+mcp-gateway:
+  database:
+    host: ${MCP_GATEWAY_DATABASE_HOST:127.0.0.1:3306}
+    username: ${MCP_GATEWAY_DATABASE_USERNAME:mcp_gateway}
+    password: ${MCP_GATEWAY_DATABASE_PASSWORD}
+  web:
+    cors:
+      allowed-origin-patterns: ${MCP_GATEWAY_WEB_CORS_ALLOWED_ORIGIN_PATTERNS:https://gateway.example.com}
+  security:
+    require-https: true
+    trusted-proxy-cidrs: ${MCP_GATEWAY_SECURITY_TRUSTED_PROXY_CIDRS:127.0.0.1/32,::1/128}
+    csrf:
+      enabled: true
+  log:
+    dir: ${MCP_GATEWAY_LOG_DIR:/app/imawx-mcp-gateway/app/logs}
+
+logging:
+  level:
+    root: info
+    com.imawx.mcp.gateway: INFO
+    com.imawx.mcp.gateway.config.MybatisPlusConfig: INFO
+    io.modelcontextprotocol: WARN
+    com.baomidou.mybatisplus: WARN

@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.imawx.mcp.gateway.mapper.McpBackendMapper">
+
+    <resultMap id="BaseResultMap" type="com.imawx.mcp.gateway.entity.do_.McpBackendDO">
+        <id column="id" property="id"/>
+        <result column="backend_id" property="backendId"/>
+        <result column="created_by" property="createdBy"/>
+        <result column="updated_by" property="updatedBy"/>
+        <result column="server_name" property="serverName"/>
+        <result column="transport_type" property="transportType"/>
+        <result column="endpoint" property="endpoint"/>
+        <result column="auth_token" property="authToken"/>
+        <result column="extra_config" property="extraConfig"/>
+        <result column="tags" property="tags"/>
+        <result column="remark" property="remark"/>
+        <result column="status" property="status"/>
+        <result column="enabled" property="enabled"/>
+        <result column="health_interval" property="healthInterval"/>
+        <result column="fail_threshold" property="failThreshold"/>
+        <result column="fail_count" property="failCount"/>
+        <result column="last_check_at" property="lastCheckAt"/>
+        <result column="last_error" property="lastError"/>
+        <result column="last_sync_at" property="lastSyncAt"/>
+        <result column="last_sync_error" property="lastSyncError"/>
+        <result column="tools_snapshot" property="toolsSnapshot"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, backend_id, created_by, updated_by, server_name, transport_type, endpoint,
+        auth_token, extra_config, tags, remark, status, enabled, health_interval,
+        fail_threshold, fail_count, last_check_at, last_error, last_sync_at,
+        last_sync_error, tools_snapshot, create_time, update_time
+    </sql>
+
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM mcp_backend
+        WHERE id = #{id}
+    </select>
+
+    <!-- 2026-07-03 改:全局按 backendId 查,不再绑 userId —— 所有登录用户共享 backend 池。 -->
+    <select id="selectByBackendId" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM mcp_backend
+        WHERE backend_id = #{backendId}
+    </select>
+
+    <!-- 2026-07-02 加,2026-07-03 改:聚合路由 /api/mcp 用 —— 拿所有 enabled=1 的 backend,
+         按 backend_id 稳定排序,这样聚合后的 tool name 前缀可预测。不再 userId 过滤。 -->
+    <select id="selectEnabled" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM mcp_backend
+        WHERE enabled = 1
+        ORDER BY backend_id ASC
+    </select>
+
+    <!-- 2026-07-03 改:不再 userId 过滤;所有登录用户都能看到全平台 backend 列表(分页/搜索/筛选)。 -->
+    <select id="countByQuery" resultType="long">
+        SELECT COUNT(*) FROM mcp_backend
+        <where>
+            <if test="query.keyword != null and query.keyword != ''">
+                AND (server_name LIKE CONCAT('%', #{query.keyword}, '%')
+                  OR backend_id LIKE CONCAT('%', #{query.keyword}, '%')
+                  OR endpoint LIKE CONCAT('%', #{query.keyword}, '%'))
+            </if>
+            <if test="query.transportType != null and query.transportType != ''">
+                AND transport_type = #{query.transportType}
+            </if>
+            <if test="query.enabled != null">
+                AND enabled = #{query.enabled}
+            </if>
+        </where>
+    </select>
+
+    <select id="selectPageList" resultMap="BaseResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM mcp_backend
+        <where>
+            <if test="query.keyword != null and query.keyword != ''">
+                AND (server_name LIKE CONCAT('%', #{query.keyword}, '%')
+                  OR backend_id LIKE CONCAT('%', #{query.keyword}, '%')
+                  OR endpoint LIKE CONCAT('%', #{query.keyword}, '%'))
+            </if>
+            <if test="query.transportType != null and query.transportType != ''">
+                AND transport_type = #{query.transportType}
+            </if>
+            <if test="query.enabled != null">
+                AND enabled = #{query.enabled}
+            </if>
+        </where>
+        ORDER BY update_time DESC
+        LIMIT #{query.offset}, #{query.size}
+    </select>
+</mapper>

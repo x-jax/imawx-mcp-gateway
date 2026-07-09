@@ -1,0 +1,104 @@
+# ============================================================
+# imawx-mcp-gateway .gitignore(2026-07-03 首次初始化)
+#
+# 设计原则:
+# - 排除所有构建产物(target/dist/classes)
+# - 排除所有日志(logs/)
+# - 排除所有 IDE / OS 临时文件
+# - 保留所有源代码、配置、脚本
+# ============================================================
+
+# ===== Java/Maven 后端 =====
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.iml
+HELP.md
+mvnw
+mvnw.cmd
+.mvn/
+.flattened-pom.xml
+
+# ===== Spring Boot DevTools =====
+# 启用 spring-boot-devtools 时生成,生产环境无用
+.spring-boot-devtools.properties
+
+# ===== 前端 =====
+node_modules/
+dist/
+.cache/
+.vite/
+*.local
+.env.local
+.env.*.local
+
+# ===== 日志(运行期生成) =====
+# 2026-07-03 改:锚定到 mcp-gateway/logs/,避免误匹配 mcp-web-ui/src/views/.../logs/ 这种源码目录
+/logs/
+mcp-gateway/logs/
+*.log
+*.log.*
+# 备份文件
+*.bak
+*.orig
+
+# ===== 旧的废弃 web-ui 目录(已迁移到 mcp-web-ui) =====
+web-ui/
+
+# ===== IDE 删除文件备份(2026-07-03 .deleted/ 里是 IDE 删文件时的备份) =====
+.deleted/
+
+# ===== IDE =====
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+.classpath
+.project
+.settings/
+.factorypath
+bin/
+target/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== 临时文件 =====
+*.tmp
+*.temp
+*.pid
+*.seed
+*.pid.lock
+
+# ===== 测试 =====
+coverage/
+.nyc_output/
+*.lcov
+
+# ===== 日志敏感数据(避免提交真实凭据) =====
+# 即使不在 logs/ 下,也排除任何带密钥特征的文件
+application-local.yml
+application-localdev.yml
+application-localprod.yml
+application-*.local.yml
+application-local.properties
+secrets.yml
+*.secret
+
+# ===== AES-256-GCM 密钥文件(2026-07-04 加)====
+# dev profile 启动自动生成到 user home(~/.imawx-mcp-gateway/totp.key),
+# 项目根目录也可能误用(开发期手动 cp 过去调试),挡一下 totp.key 模式文件
+**/totp.key
+**/*.totp.key
+.totp.key
+mcp-totp.key
+**/mcp-totp.key
+
+# ===== Maven 仓库临时文件 =====
+.m2/
+.build-skipped/

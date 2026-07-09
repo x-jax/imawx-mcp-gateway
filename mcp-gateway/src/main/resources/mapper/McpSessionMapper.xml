@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.imawx.mcp.gateway.mapper.McpSessionMapper">
+
+    <resultMap id="BaseResultMap" type="com.imawx.mcp.gateway.entity.do_.McpSessionDO">
+        <id property="id" column="id" />
+        <result property="sessionId" column="session_id" />
+        <result property="userId" column="user_id" />
+        <result property="tokenId" column="token_id" />
+        <result property="protocolVersion" column="protocol_version" />
+        <result property="clientInfo" column="client_info" />
+        <result property="state" column="state" />
+        <result property="lastMethod" column="last_method" />
+        <result property="createTime" column="create_time" />
+        <result property="lastActiveAt" column="last_active_at" />
+        <result property="expireAt" column="expire_at" />
+        <result property="closeTime" column="close_time" />
+    </resultMap>
+
+    <select id="selectBySessionId" resultMap="BaseResultMap">
+        SELECT id, session_id, user_id, token_id, protocol_version, client_info,
+               state, last_method, create_time, last_active_at, expire_at, close_time
+        FROM mcp_session
+        WHERE session_id = #{sessionId}
+        LIMIT 1
+    </select>
+
+    <update id="touch">
+        UPDATE mcp_session
+        SET last_active_at = #{lastActiveAt},
+            expire_at = #{expireAt},
+            last_method = #{lastMethod}
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectExpired" resultMap="BaseResultMap">
+        SELECT id, session_id, user_id, token_id, protocol_version, client_info,
+               state, last_method, create_time, last_active_at, expire_at, close_time
+        FROM mcp_session
+        WHERE expire_at &lt; #{now}
+        ORDER BY expire_at ASC
+        LIMIT #{limit}
+    </select>
+
+    <update id="close">
+        UPDATE mcp_session
+        SET state = 'CLOSED',
+            close_time = #{closeTime}
+        WHERE id = #{id}
+    </update>
+</mapper>

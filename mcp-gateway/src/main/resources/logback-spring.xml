@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Logback 配置文件（2026-07-03 从 imawx-mcp-server 复制过来，保持日志滚动 / 错误日志分离 / archive
+  归档策略一致）。
+
+  Spring Boot 4.x 官方约定位置：src/main/resources/logback-spring.xml。
+  命名带 "-spring" 后缀，Spring Boot 启动时会自动加载，
+  可在 <springProfile> / <springProperty> 内使用 Spring 环境变量，
+  这是 logback.xml 做不到的。
+
+  设计目标：
+  1. 按天滚动（TimeBasedRollingPolicy）+ gzip 压缩
+  2. 单文件 100MB 上限（SizeAndTimeBasedRollingPolicy 的 %i）
+  3. 保留 60 天历史（<maxHistory>60</maxHistory>）
+  4. 历史日志归档到 ${LOG_DIR}/archive/ 子目录，与活跃日志分离
+  5. Console 输出精简（HH:mm:ss），文件输出带完整日期（yyyy-MM-dd HH:mm:ss.SSS）+ thread + logger
+  6. 业务包 com.imawx.mcp.gateway 默认 INFO；Spring 框架默认 WARN（避免太多内部日志）
+  7. ERROR 级别单独写到 imawx-mcp-gateway.error.log，便于告警系统抓取
+-->
+<configuration>
+
+    <conversionRule conversionWord="redactMsg"
+                    converterClass="com.imawx.mcp.gateway.common.logging.RedactedMessageConverter"/>
+
+    <!-- 从 Spring 环境读取日志目录与保留天数，默认值兜底 -->
+    <springProperty scope="context" name="LOG_DIR" source="mcp-gateway.log.dir" defaultValue="logs"/>
+    <springProperty scope="context" name="RETENTION_DAYS" source="mcp-gateway.log.retention-days" defaultValue="60"/>
+
+    <!--
+      通用输出 pattern（运维完整版）：
+      %d{yyyy-MM-dd HH:mm:ss.SSS}   完整日期
+      [%thread]                       线程名
+      [req=%X{requestId:-}]           请求 ID（从 MDC 读取，无则空）
+      %-5level                        日志级别（左对齐 5 字符宽）
+      %logger{36}                     logger 名，最长 36 字符，超出自动缩写
+      %msg                            日志消息
+      %n                              换行
+    -->
+    <property name="FILE_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [req=%X{requestId:-}] %-5level %logger{36} - %redactMsg%n"/>
+
+    <!--
+      Console pattern（开发精简版）：只显示时分秒，省略日期方便看。
+    -->
+    <property name="CONSOLE_PATTERN"
+              value="%d{HH:mm:ss.SSS} [%thread] [req=%X{requestId:-}] %-5level %logger{36} - %redactMsg%n"/>
+
+    <!-- ========================= Console ========================= -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${CONSOLE_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- ========================= 活跃日志文件 ========================= -->
+    <!--
+      RollingFileAppender + SizeAndTimeBasedRollingPolicy：
+      - 按天触发滚动（TriggeringPolicy <maxFileSize>）
+      - 同一天内文件超过 100MB 也滚动
+      - 历史文件命名 ${LOG_FILE}.yyyy-MM-dd.N.gz，N 从 0 递增
+      - archive 子目录单独存放历史
+    -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/imawx-mcp-gateway.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/imawx-mcp-gateway.log.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>${RETENTION_DAYS}</maxHistory>
+            <totalSizeCap>10GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!--
+      错误级别单独文件（便于告警系统/独立抓取 ERROR 及以上）：
+      错误日志独立于普通日志，排查问题时快速定位。
+    -->
+    <appender name="FILE_ERROR" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/imawx-mcp-gateway.error.log</file>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>ERROR</level>
+        </filter>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/imawx-mcp-gateway.error.log.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>${RETENTION_DAYS}</maxHistory>
+            <totalSizeCap>5GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- ========================= Logger ========================= -->
+    <!--
+      业务代码包默认 INFO；Spring 框架默认 WARN（避免太多内部日志）；
+      MyBatis / MyBatis-Plus 默认 WARN（避免每个 SQL 都打日志）；
+      Spring AI MCP 默认 INFO(调试 MCP 协议)。
+      级别由 application-{dev,prod}.yml 里的 logging.level 覆盖。
+    -->
+    <logger name="com.imawx.mcp.gateway" level="INFO"/>
+    <logger name="org.springframework" level="WARN"/>
+    <logger name="org.apache.ibatis" level="WARN"/>
+    <logger name="com.baomidou.mybatisplus" level="WARN"/>
+    <logger name="io.modelcontextprotocol" level="INFO"/>
+
+    <!--
+      根 logger 同时输出到 console + 活跃日志文件 + 错误日志文件
+      （additive=true 表示错误日志会同时打到 active 日志里，
+      方便按时间线看完整上下文）。
+    -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+        <appender-ref ref="FILE_ERROR"/>
+    </root>
+
+</configuration>

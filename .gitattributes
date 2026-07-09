@@ -1,0 +1,15 @@
+# 强制 LF 换行（避免 Windows CRLF 提交冲突）
+* text=auto eol=lf
+
+# 二进制文件标记
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.gz binary
+*.pdf binary

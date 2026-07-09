@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.imawx.mcp.gateway.mapper.McpBackendExtensionMapper">
+    <resultMap id="BaseResultMap" type="com.imawx.mcp.gateway.entity.do_.McpBackendExtensionDO">
+        <id column="id" property="id"/>
+        <result column="backend_id" property="backendId"/>
+        <result column="provider_type" property="providerType"/>
+        <result column="config_json" property="configJson"/>
+        <result column="secret_enc" property="secretEnc"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <select id="selectByBackendId" resultMap="BaseResultMap">
+        SELECT id, backend_id, provider_type, config_json, secret_enc, create_time, update_time
+        FROM mcp_backend_extension
+        WHERE backend_id = #{backendId}
+        LIMIT 1
+    </select>
+
+    <delete id="deleteByBackendId">
+        DELETE FROM mcp_backend_extension WHERE backend_id = #{backendId}
+    </delete>
+</mapper>

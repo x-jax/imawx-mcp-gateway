@@ -1,0 +1,340 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.imawx.mcp.gateway.mapper.McpCallLogMapper">
+
+    <resultMap id="BaseResultMap" type="com.imawx.mcp.gateway.entity.do_.McpCallLogDO">
+        <id column="id" property="id"/>
+        <result column="trace_id" property="traceId"/>
+        <result column="user_id" property="userId"/>
+        <result column="user_email_snapshot" property="userEmailSnapshot"/>
+        <result column="token_id" property="tokenId"/>
+        <result column="token_prefix_snapshot" property="tokenPrefixSnapshot"/>
+        <result column="backend_id" property="backendId"/>
+        <result column="backend_key" property="backendKey"/>
+        <result column="server_name_snapshot" property="serverNameSnapshot"/>
+        <result column="tool_name" property="toolName"/>
+        <result column="tool_description_snapshot" property="toolDescriptionSnapshot"/>
+        <result column="transport_type" property="transportType"/>
+        <result column="inbound_session_id" property="inboundSessionId"/>
+        <result column="outbound_session_id" property="outboundSessionId"/>
+        <result column="arguments_json" property="argumentsJson"/>
+        <result column="result_json" property="resultJson"/>
+        <result column="stream_logs_json" property="streamLogsJson"/>
+        <result column="success" property="success"/>
+        <result column="error_code" property="errorCode"/>
+        <result column="error_message" property="errorMessage"/>
+        <result column="cost_ms" property="costMs"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, trace_id, user_id, user_email_snapshot, token_id, token_prefix_snapshot,
+        backend_id, backend_key, server_name_snapshot, tool_name, tool_description_snapshot,
+        transport_type, inbound_session_id, outbound_session_id,
+        arguments_json, result_json, stream_logs_json,
+        success, error_code, error_message, cost_ms, create_time
+    </sql>
+
+    <!-- ============================ 查询条件 ============================ -->
+    <!--
+        所有查询强绑 user_id(账号隔离)。
+        status 是 VO 层过滤字段(SUCCESS / FAILED / TIMEOUT),由 Service 层根据
+        success + cost_ms 推导后塞到 WHERE,SQL 里直接接收 String。
+
+        daterange 用 start_time / end_time 两个参数;start_time 默认 '1970-01-01',
+        end_time 默认 NOW()。日期格式 ISO_LOCAL_DATE_TIME 或 yyyy-MM-dd HH:mm:ss。
+
+        性能:
+          - 命中 idx_user_time (user_id, create_time) 主路径
+          - tool_name 用 LIKE '%xxx%' 全表扫(日志量大后考虑 FULLTEXT 索引)
+          - backend_id 命中 idx_backend_time (backend_id, create_time)
+    -->
+    <sql id="QueryWhere">
+        <where>
+            l.user_id = #{query.userId}
+            <if test="query.startTime != null">
+                AND l.create_time &gt;= #{query.startTime}
+            </if>
+            <if test="query.endTime != null">
+                AND l.create_time &lt;= #{query.endTime}
+            </if>
+            <if test="query.toolName != null and query.toolName != ''">
+                AND l.tool_name LIKE CONCAT('%', #{query.toolName}, '%')
+            </if>
+            <if test="query.backendId != null">
+                AND l.backend_id = #{query.backendId}
+            </if>
+            <if test="query.serverName != null and query.serverName != ''">
+                <!-- 服务名存在 mcp_backend 表,JOIN 后用 resolved server_name LIKE 模糊匹配。
+                     跟 toolName 一样是全表扫,日志量大后考虑 FULLTEXT 索引。 -->
+                AND COALESCE(l.server_name_snapshot, bk.server_name, b.server_name, legacy_b.server_name) LIKE CONCAT('%', #{query.serverName}, '%')
+            </if>
+            <if test="query.userEmail != null and query.userEmail != ''">
+                AND COALESCE(l.user_email_snapshot, u.email) LIKE CONCAT('%', #{query.userEmail}, '%')
+            </if>
+            <if test="query.tokenPrefix != null and query.tokenPrefix != ''">
+                AND COALESCE(l.token_prefix_snapshot, t.token_prefix) LIKE CONCAT('%', #{query.tokenPrefix}, '%')
+            </if>
+            <if test="query.success != null">
+                <!-- success: 1 成功 / 0 失败;TIMEOUT 用 cost_ms 阈值推,SQL 里 status=SUCCESS 或 status=FAILED
+                     会展开成对应 success 值 + cost 范围(交给 Service 拼 query.success / query.minCostMs) -->
+                AND l.success = #{query.success}
+            </if>
+            <if test="query.minCostMs != null">
+                AND l.cost_ms &gt;= #{query.minCostMs}
+            </if>
+        </where>
+    </sql>
+
+    <sql id="BackendJoins">
+        LEFT JOIN mcp_backend bk ON bk.backend_id = l.backend_key
+        LEFT JOIN mcp_backend b ON b.id = l.backend_id
+        LEFT JOIN mcp_user u ON u.id = l.user_id
+        LEFT JOIN mcp_session s ON s.session_id = l.inbound_session_id
+        LEFT JOIN mcp_api_token t ON t.id = COALESCE(l.token_id, s.token_id)
+        LEFT JOIN mcp_backend legacy_b
+          ON l.backend_key IS NULL
+         AND l.backend_id &lt; 0
+         AND (
+              legacy_b.backend_id = CONCAT('db_', CAST(-l.backend_id AS CHAR))
+              OR l.backend_id = -(CRC32(legacy_b.backend_id) + 1000000)
+         )
+    </sql>
+
+    <!-- JOIN mcp_backend 拿 server_name。 -->
+    <select id="selectPageList" resultType="com.imawx.mcp.gateway.entity.vo.McpCallLogVO">
+        SELECT
+            l.id,
+            l.trace_id AS traceId,
+            l.user_id AS userId,
+            COALESCE(l.user_email_snapshot, u.email) AS userEmail,
+            COALESCE(l.token_prefix_snapshot, t.token_prefix) AS tokenPrefix,
+            l.backend_id AS backendId,
+            l.backend_key AS backendKey,
+            COALESCE(l.server_name_snapshot, bk.server_name, b.server_name, legacy_b.server_name) AS serverName,
+            l.tool_name AS toolName,
+            l.tool_description_snapshot AS toolDescription,
+            l.transport_type AS transportType,
+            l.inbound_session_id AS inboundSessionId,
+            l.outbound_session_id AS outboundSessionId,
+            l.arguments_json AS argumentsJson,
+            l.result_json AS resultJson,
+            l.stream_logs_json AS streamLogsJson,
+            NULL AS status,
+            l.success,
+            l.error_code AS errorCode,
+            l.error_message AS errorMessage,
+            l.cost_ms AS costMs,
+            l.create_time AS invokedAt,
+            l.client_ip AS clientIp,
+            l.user_agent AS userAgent
+        FROM mcp_call_log l
+        <include refid="BackendJoins"/>
+        <include refid="QueryWhere"/>
+        ORDER BY l.create_time DESC, l.id DESC
+        LIMIT #{query.offset}, #{query.size}
+    </select>
+
+    <select id="countByQuery" resultType="long">
+        <!-- 2026-07-06 改:QueryWhere 里加 serverName LIKE 后,b.server_name 必须
+             JOIN 进来才能引用;不 JOIN 会报"Unknown column 'b.server_name'"。
+             LEFT JOIN 跟 selectPageList 一致,backend 被删时 b.* = NULL,但
+             serverName 过滤非空时这些 NULL 行会被 WHERE 过滤掉,不影响计数语义。 -->
+        SELECT COUNT(*) FROM mcp_call_log l
+        <include refid="BackendJoins"/>
+        <include refid="QueryWhere"/>
+    </select>
+
+    <!-- 详情:JOIN 拿 server_name,单条。账号隔离:user_id 必须匹配。 -->
+    <select id="selectDetail" resultType="com.imawx.mcp.gateway.entity.vo.McpCallLogVO">
+        SELECT
+            l.id,
+            l.trace_id AS traceId,
+            l.user_id AS userId,
+            COALESCE(l.user_email_snapshot, u.email) AS userEmail,
+            COALESCE(l.token_prefix_snapshot, t.token_prefix) AS tokenPrefix,
+            l.backend_id AS backendId,
+            l.backend_key AS backendKey,
+            COALESCE(l.server_name_snapshot, bk.server_name, b.server_name, legacy_b.server_name) AS serverName,
+            l.tool_name AS toolName,
+            l.tool_description_snapshot AS toolDescription,
+            l.transport_type AS transportType,
+            l.inbound_session_id AS inboundSessionId,
+            l.outbound_session_id AS outboundSessionId,
+            l.arguments_json AS argumentsJson,
+            l.result_json AS resultJson,
+            l.stream_logs_json AS streamLogsJson,
+            NULL AS status,
+            l.success,
+            l.error_code AS errorCode,
+            l.error_message AS errorMessage,
+            l.cost_ms AS costMs,
+            l.create_time AS invokedAt,
+            l.client_ip AS clientIp,
+            l.user_agent AS userAgent
+        FROM mcp_call_log l
+        <include refid="BackendJoins"/>
+        WHERE l.id = #{id} AND l.user_id = #{userId}
+    </select>
+
+    <!--
+        统计:今日调用数 / 成功数 / 失败数 / 平均耗时 / 超时数。
+        一次 SQL 算完,前端 dashboard 用。
+        status 推导:
+          - SUCCESS → success=1 AND cost_ms < TIMEOUT_THRESHOLD
+          - FAILED  → success=0
+          - TIMEOUT → success=1 AND cost_ms >= TIMEOUT_THRESHOLD
+    -->
+    <select id="selectStats" resultType="com.imawx.mcp.gateway.entity.vo.McpCallLogStatsVO">
+        SELECT
+            COUNT(*) AS totalCount,
+            SUM(CASE WHEN l.success = 1 AND l.cost_ms &lt; #{timeoutMs} THEN 1 ELSE 0 END) AS successCount,
+            SUM(CASE WHEN l.success = 1 AND l.cost_ms &gt;= #{timeoutMs} THEN 1 ELSE 0 END) AS timeoutCount,
+            SUM(CASE WHEN l.success = 0 THEN 1 ELSE 0 END) AS failedCount,
+            AVG(l.cost_ms) AS avgCostMs,
+            MAX(l.cost_ms) AS maxCostMs,
+            MIN(l.cost_ms) AS minCostMs
+        FROM mcp_call_log l
+        WHERE l.user_id = #{userId}
+        <if test="startTime != null">
+            AND l.create_time &gt;= #{startTime}
+        </if>
+        <if test="endTime != null">
+            AND l.create_time &lt;= #{endTime}
+        </if>
+    </select>
+
+    <!-- ===== Dashboard 大屏监控(2026-07-02 加)===== -->
+
+    <!-- 调用状态分布(SUCCESS/FAILED/TIMEOUT) —— 返 3 行 [{status, cnt}] -->
+    <select id="selectStatusDistribution" resultType="java.util.LinkedHashMap">
+        SELECT * FROM (
+            SELECT 'SUCCESS' AS status,
+                   SUM(CASE WHEN l.success = 1 AND l.cost_ms &lt; #{timeoutMs} THEN 1 ELSE 0 END) AS cnt
+            FROM mcp_call_log l
+            WHERE l.user_id = #{userId}
+            <if test="startTime != null">
+                AND l.create_time &gt;= #{startTime}
+            </if>
+            <if test="endTime != null">
+                AND l.create_time &lt;= #{endTime}
+            </if>
+            UNION ALL
+            SELECT 'FAILED' AS status,
+                   SUM(CASE WHEN l.success = 0 THEN 1 ELSE 0 END) AS cnt
+            FROM mcp_call_log l
+            WHERE l.user_id = #{userId}
+            <if test="startTime != null">
+                AND l.create_time &gt;= #{startTime}
+            </if>
+            <if test="endTime != null">
+                AND l.create_time &lt;= #{endTime}
+            </if>
+            UNION ALL
+            SELECT 'TIMEOUT' AS status,
+                   SUM(CASE WHEN l.success = 1 AND l.cost_ms &gt;= #{timeoutMs} THEN 1 ELSE 0 END) AS cnt
+            FROM mcp_call_log l
+            WHERE l.user_id = #{userId}
+            <if test="startTime != null">
+                AND l.create_time &gt;= #{startTime}
+            </if>
+            <if test="endTime != null">
+                AND l.create_time &lt;= #{endTime}
+            </if>
+        ) t
+        ORDER BY status
+    </select>
+
+    <!-- 24h 分时调用 —— 返 N 行 {hour 0-23, invokeCount, errorCount}
+         (返回的 hour 数量 = 实际有调用的时段;前端 0-23 全列补 0) -->
+    <select id="selectHourlyTrend" resultType="java.util.LinkedHashMap">
+        SELECT
+            HOUR(create_time) AS hour,
+            COUNT(*) AS invokeCount,
+            SUM(CASE WHEN success = 0 OR cost_ms &gt;= 1800000 THEN 1 ELSE 0 END) AS errorCount
+        FROM mcp_call_log l
+        WHERE l.user_id = #{userId}
+        <if test="startTime != null">
+            AND l.create_time &gt;= #{startTime}
+        </if>
+        <if test="endTime != null">
+            AND l.create_time &lt;= #{endTime}
+        </if>
+        GROUP BY HOUR(create_time)
+        ORDER BY hour
+    </select>
+
+    <!-- Top 10 慢请求 —— 优先用日志快照里的 MCP 名称，避免服务删除后审计显示为空 -->
+    <select id="selectSlowRequests" resultType="java.util.LinkedHashMap">
+        SELECT
+            l.id,
+            l.tool_name AS toolName,
+            l.backend_id AS backendId,
+            COALESCE(l.server_name_snapshot, bk.server_name, b.server_name, legacy_b.server_name) AS backendName,
+            l.transport_type AS transportType,
+            l.cost_ms AS costMs,
+            l.success,
+            l.error_code AS errorCode,
+            l.create_time AS invokedAt
+        FROM mcp_call_log l
+        <include refid="BackendJoins"/>
+        WHERE l.user_id = #{userId}
+        <if test="startTime != null">
+            AND l.create_time &gt;= #{startTime}
+        </if>
+        <if test="endTime != null">
+            AND l.create_time &lt;= #{endTime}
+        </if>
+        ORDER BY l.cost_ms DESC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 各 backend 聚合 —— dashboard 状态网格用 -->
+    <!-- toolCount 从 mcp_backend_tool 表算（不读 tools_snapshot JSON，避免 stale） -->
+    <select id="selectBackendStats" resultType="java.util.LinkedHashMap">
+        SELECT
+            b.id AS backendId,
+            b.backend_id AS backendPublicId,
+            b.server_name AS backendName,
+            b.transport_type AS transportType,
+            b.status AS connectionStatus,
+            b.enabled AS enabled,
+            b.last_sync_at AS lastSyncAt,
+            COALESCE(t.tool_count, 0) AS toolCount,
+            COUNT(l.id) AS invokeCount,
+            COALESCE(SUM(CASE WHEN l.success = 0 OR l.cost_ms &gt;= 1800000 THEN 1 ELSE 0 END), 0) AS errorCount,
+            COALESCE(AVG(l.cost_ms), 0) AS avgCostMs,
+            COALESCE(MAX(l.cost_ms), 0) AS p99CostMs
+        FROM mcp_backend b
+        LEFT JOIN mcp_call_log l ON l.backend_id = b.id
+            AND l.create_time BETWEEN #{startTime} AND #{endTime}
+            AND l.user_id = #{userId}
+        LEFT JOIN (
+            SELECT backend_id, COUNT(*) AS tool_count
+            FROM mcp_backend_tool
+            GROUP BY backend_id
+        ) t ON t.backend_id = b.id
+        WHERE 1=1
+        GROUP BY b.id, b.backend_id, b.server_name, b.transport_type, b.status, b.enabled, b.last_sync_at, t.tool_count
+        ORDER BY invokeCount DESC
+    </select>
+
+    <!-- 按 transport 类型分组的滚动 24h 平均耗时趋势 -->
+    <select id="selectTransportCostTrend" resultType="java.util.LinkedHashMap">
+        SELECT
+            l.transport_type AS transportType,
+            TIMESTAMPDIFF(HOUR, #{startTime}, l.create_time) AS slotIndex,
+            DATE_FORMAT(
+                DATE_ADD(#{startTime}, INTERVAL TIMESTAMPDIFF(HOUR, #{startTime}, l.create_time) HOUR),
+                '%H:%i'
+            ) AS slotLabel,
+            AVG(l.cost_ms) AS avgCostMs
+        FROM mcp_call_log l
+        WHERE l.user_id = #{userId}
+            AND l.create_time &gt;= #{startTime}
+            AND l.create_time &lt; #{endTime}
+        GROUP BY l.transport_type, slotIndex, slotLabel
+        ORDER BY l.transport_type, slotIndex
+    </select>
+</mapper>

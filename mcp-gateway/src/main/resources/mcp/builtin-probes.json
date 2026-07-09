@@ -1,0 +1,46 @@
+{
+  "ALIYUN_DNS": {
+    "toolName": "dns_list_domains",
+    "arguments": {}
+  },
+  "ALIYUN_OSS": {
+    "toolName": "oss_list_buckets",
+    "arguments": {}
+  },
+  "MYSQL": {
+    "toolName": "list_tables",
+    "arguments": {}
+  },
+  "POSTGRESQL": {
+    "toolName": "list_tables",
+    "arguments": {}
+  },
+  "ORACLE": {
+    "toolName": "list_tables",
+    "arguments": {}
+  },
+  "SQLSERVER": {
+    "toolName": "list_tables",
+    "arguments": {}
+  },
+  "REDIS": {
+    "toolName": "redis_type",
+    "arguments": {
+      "key": "__imawx_mcp_gateway_probe__"
+    }
+  },
+  "MONGODB": {
+    "toolName": "mongo_list_collections",
+    "arguments": {}
+  },
+  "ELASTICSEARCH": {
+    "toolName": "es_list_indices",
+    "arguments": {
+      "pattern": "*"
+    }
+  },
+  "SSH": {
+    "toolName": "ssh_probe",
+    "arguments": {}
+  }
+}

@@ -1,0 +1,18 @@
+# Copy this file to application-localprod.yml for private production overrides.
+# application-localprod.yml is ignored by Git.
+
+spring:
+  config:
+    activate:
+      on-profile: localprod
+
+mcp-gateway:
+  database:
+    host: 127.0.0.1:3306
+    username: mcp_gateway
+    password: change-me
+  web:
+    cors:
+      allowed-origin-patterns: https://gateway.example.com
+  log:
+    dir: /app/imawx-mcp-gateway/app/logs

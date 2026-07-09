@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.imawx.mcp.gateway.mapper.McpUserMapper">
+
+    <!--
+      2026-07-04 改:删除 totp_backup_codes 列(测试环境直接 DROP)。
+      当前结构 = id / username / password_hash / display_name / email / status /
+      must_change_password / last_login_at / create_time / update_time / totp_secret / totp_verified_at。
+      其他字段(创建时间、更新时间)是 MyBatis-Plus 自动填充,insert 时只指定业务字段。
+    -->
+    <resultMap id="BaseResultMap" type="com.imawx.mcp.gateway.entity.do_.McpUserDO">
+        <id column="id" property="id"/>
+        <result column="username" property="username"/>
+        <result column="password_hash" property="passwordHash"/>
+        <result column="display_name" property="displayName"/>
+        <result column="email" property="email"/>
+        <result column="status" property="status"/>
+        <result column="must_change_password" property="mustChangePassword"/>
+        <result column="last_login_at" property="lastLoginAt"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+        <result column="totp_secret" property="totpSecret"/>
+        <result column="totp_verified_at" property="totpVerifiedAt"/>
+    </resultMap>
+
+    <select id="selectByUsername" resultMap="BaseResultMap">
+        SELECT id, username, password_hash, display_name, email, status, must_change_password,
+               last_login_at, create_time, update_time,
+               totp_secret, totp_verified_at
+        FROM mcp_user
+        WHERE username = #{username}
+    </select>
+
+    <select id="selectByEmail" resultMap="BaseResultMap">
+        SELECT id, username, password_hash, display_name, email, status, must_change_password,
+               last_login_at, create_time, update_time,
+               totp_secret, totp_verified_at
+        FROM mcp_user
+        WHERE email = #{email}
+    </select>
+</mapper>
